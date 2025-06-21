@@ -241,12 +241,10 @@
                         break;
                     case 'ramp':
                         const rampAngle = Math.PI / 16;
-                        pieceRotation.x = -rampAngle; // A negative rotation around X makes the piece slope downwards.
+                        pieceRotation.x = -rampAngle; 
                         const yChange = pieceSize.depth * Math.sin(rampAngle);
-                        // The ramp's center needs to be shifted down by half its vertical drop.
-                        const rampOffset = new THREE.Vector3(0, -yChange / 2, 0);
-                        addLevelPiece(nextPos.clone().add(rampOffset), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
-                        // The next piece's Y position is now lower.
+                        const rampCenterY = currentPos.y - yChange / 2;
+                        addLevelPiece(new THREE.Vector3(nextPos.x, rampCenterY, nextPos.z), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
                         nextPos.y -= yChange;
                         break;
                     case 'turnLeft':
@@ -299,12 +297,12 @@
             
             const sideSign = turnDirection === 'left' ? 1 : -1;
 
-            // Wall 1: The wall opposite the entrance.
+            // Wall 1: The back wall, opposite the entrance.
             const backWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
             const backWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
             const backWallWorldPos = centerPos.clone().add(backWallLocalPos.clone().applyQuaternion(pieceQuaternion));
             addGuardRail(backWallWorldPos, pieceRotation, backWallSize);
-
+            
             // Wall 2: The side wall on the outer edge of the turn.
             const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, platformWidth);
             const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, 0);
@@ -412,11 +410,13 @@
                         const sensitivity = 20; 
                         const deadZone = 1.0; 
 
-                        // Corrected Portrait mode mapping
+                        // Corrected Portrait mode mapping based on user feedback
                         let tiltX = accelerometer.x;
                         let tiltY = accelerometer.y;
                         
+                        // Tilt Left/Right -> Move Left/Right
                         controls.x = Math.abs(tiltX) > deadZone ? (tiltX - Math.sign(tiltX) * deadZone) * sensitivity : 0;
+                        // Tilt Forward/Back -> Move Forward/Back
                         controls.z = Math.abs(tiltY) > deadZone ? (tiltY - Math.sign(tiltY) * deadZone) * -sensitivity : 0;
                         
                         dialPointer.style.transform = `translate(${tiltX * 4}px, ${tiltY * 4}px)`;
