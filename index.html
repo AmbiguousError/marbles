@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marble Madness 3D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #1a1a1a;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #ui-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none; /* Let clicks pass through to the canvas unless on a button */
+        }
+        .modal {
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 2rem 3rem;
+            border-radius: 1rem;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            max-width: 90%;
+            pointer-events: all; /* Capture clicks on the modal */
+        }
+        .modal h1 {
+            margin-top: 0;
+            font-size: 2.5rem;
+            color: #4ade80; /* A nice green */
+        }
+        .modal p {
+            font-size: 1.1rem;
+            line-height: 1.6;
+            max-width: 400px;
+        }
+        .modal button {
+            background: linear-gradient(45deg, #4ade80, #34d399);
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 1rem;
+            box-shadow: 0 4px 15px rgba(74, 222, 128, 0.4);
+        }
+        .modal button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(74, 222, 128, 0.5);
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="ui-container">
+        <div id="start-modal" class="modal">
+            <h1>Marble Madness 3D</h1>
+            <p>Guide the marble to the green goal pad. Use your <strong>device's tilt controls</strong> or the <strong>arrow keys</strong> on your keyboard. Be careful not to fall off the edge or into the holes!</p>
+            <button id="start-button">Start Game</button>
+            <p id="sensor-error" class="hidden" style="color: #f87171; font-size: 0.9rem; margin-top: 1rem;"></p>
+        </div>
+        <div id="win-modal" class="modal hidden">
+            <h1>You Win!</h1>
+            <p>Excellent control! You navigated the course like a pro.</p>
+            <button id="play-again-button">Play Again</button>
+        </div>
+    </div>
+    <canvas id="game-canvas"></canvas>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        // --- SCENE SETUP ---
+        let scene, camera, renderer, world;
+        let marble, marbleBody, goal, goalBody;
+        let controls = { x: 0, z: 0 };
+        const obstacles = [];
+        let gameActive = false;
+
+        const startModal = document.getElementById('start-modal');
+        const winModal = document.getElementById('win-modal');
+        const startButton = document.getElementById('start-button');
+        const playAgainButton = document.getElementById('play-again-button');
+        const sensorError = document.getElementById('sensor-error');
+        
+        // --- INITIALIZE THE GAME ---
+        function init() {
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a1a);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 15);
+            camera.lookAt(0, 0, 0);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(10, 20, 5);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+            // Physics World
+            world = new CANNON.World({
+                gravity: new CANNON.Vec3(0, -20, 0), // Stronger gravity
+            });
+
+            // Materials
+            const groundMaterial = new CANNON.Material('ground');
+            const marbleMaterial = new CANNON.Material('marble');
+            const contactMaterial = new CANNON.ContactMaterial(groundMaterial, marbleMaterial, {
+                friction: 0.1,
+                restitution: 0.5,
+            });
+            world.addContactMaterial(contactMaterial);
+
+            // --- CREATE GAME OBJECTS ---
+            createLevel(groundMaterial);
+            createMarble(marbleMaterial);
+            createObstacles(groundMaterial);
+            createGoal(groundMaterial);
+            
+            setupControls();
+        }
+
+        function createLevel(material) {
+            const platformShape = new CANNON.Box(new CANNON.Vec3(10, 0.5, 15));
+            const platformBody = new CANNON.Body({ mass: 0, material: material });
+            platformBody.addShape(platformShape);
+            platformBody.position.set(0, -0.5, 0);
+            world.addBody(platformBody);
+
+            const platformMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(20, 1, 30),
+                new THREE.MeshStandardMaterial({ color: 0x4b5563 })
+            );
+            platformMesh.receiveShadow = true;
+            platformMesh.position.copy(platformBody.position);
+            scene.add(platformMesh);
+        }
+
+        function createMarble(material) {
+            marbleBody = new CANNON.Body({
+                mass: 1,
+                shape: new CANNON.Sphere(0.5),
+                position: new CANNON.Vec3(0, 5, 12),
+                material: material,
+            });
+            world.addBody(marbleBody);
+            
+            marbleBody.addEventListener('collide', (e) => {
+                if(e.body === goalBody) {
+                    winGame();
+                }
+                obstacles.forEach(obstacle => {
+                    if (e.body === obstacle.body) {
+                        resetGame('You fell into a hole!');
+                    }
+                });
+            });
+
+            marble = new THREE.Mesh(
+                new THREE.SphereGeometry(0.5, 32, 32),
+                new THREE.MeshStandardMaterial({ color: 0xfca5a5, metalness: 0.3, roughness: 0.4 })
+            );
+            marble.castShadow = true;
+            marble.position.copy(marbleBody.position);
+            scene.add(marble);
+        }
+        
+        function createGoal(material) {
+            goalBody = new CANNON.Body({
+                mass: 0,
+                shape: new CANNON.Cylinder(1.5, 1.5, 0.2, 16),
+                position: new CANNON.Vec3(0, 0.2, -12),
+                isTrigger: true // Doesn't physically collide, just detects contact
+            });
+            world.addBody(goalBody);
+
+            goal = new THREE.Mesh(
+                new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16),
+                new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x34d399 })
+            );
+            goal.position.copy(goalBody.position);
+            goal.receiveShadow = true;
+            scene.add(goal);
+        }
+
+        function createObstacles(material) {
+            const holePositions = [
+                new THREE.Vector3(5, 0.1, 5),
+                new THREE.Vector3(-5, 0.1, 0),
+                new THREE.Vector3(0, 0.1, -5),
+            ];
+
+            holePositions.forEach(pos => {
+                const holeBody = new CANNON.Body({
+                    mass: 0,
+                    shape: new CANNON.Cylinder(1, 1, 0.2, 16),
+                    position: new CANNON.Vec3(pos.x, pos.y, pos.z),
+                    isTrigger: true
+                });
+                world.addBody(holeBody);
+                
+                const holeMesh = new THREE.Mesh(
+                    new THREE.CylinderGeometry(1, 1, 0.2, 16),
+                    new THREE.MeshBasicMaterial({ color: 0x000000 })
+                );
+                holeMesh.position.copy(holeBody.position);
+                scene.add(holeMesh);
+
+                obstacles.push({ mesh: holeMesh, body: holeBody });
+            });
+        }
+        
+        // --- CONTROLS SETUP ---
+        function setupControls() {
+            // Keyboard controls (fallback)
+            window.addEventListener('keydown', (e) => {
+                if (!gameActive) return;
+                const speed = 20;
+                if (e.key === 'ArrowUp') controls.z = -speed;
+                if (e.key === 'ArrowDown') controls.z = speed;
+                if (e.key === 'ArrowLeft') controls.x = -speed;
+                if (e.key === 'ArrowRight') controls.x = speed;
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.key === 'ArrowUp' || e.key === 'ArrowDown') controls.z = 0;
+                if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') controls.x = 0;
+            });
+        }
+        
+        function requestSensorAccess() {
+             if (typeof(Accelerometer) === 'undefined' || !('requestPermission' in DeviceMotionEvent)) {
+                sensorError.textContent = "Device motion controls not supported. Using keyboard.";
+                sensorError.classList.remove('hidden');
+                return Promise.resolve(false);
+            }
+            
+            // For iOS 13+
+            if (typeof(DeviceMotionEvent.requestPermission) === 'function') {
+                return DeviceMotionEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            return true;
+                        }
+                        return false;
+                    })
+                    .catch(() => false);
+            }
+            return Promise.resolve(true); // For other browsers
+        }
+
+        async function activateSensorControls() {
+            const hasPermission = await requestSensorAccess();
+            if (!hasPermission) {
+                sensorError.textContent = "Motion control permission denied. Using keyboard.";
+                sensorError.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                const accelerometer = new Accelerometer({ frequency: 60 });
+                accelerometer.addEventListener('reading', () => {
+                    if (!gameActive) return;
+                    const sensitivity = 40;
+                    // Remap axes for intuitive control
+                    controls.x = accelerometer.y * sensitivity;
+                    controls.z = -accelerometer.x * sensitivity;
+                });
+                accelerometer.start();
+            } catch (error) {
+                 sensorError.textContent = `Sensor Error: ${error.message}. Using keyboard.`;
+                 sensorError.classList.remove('hidden');
+            }
+        }
+
+        // --- GAME LOGIC ---
+        function startGame() {
+            gameActive = true;
+            startModal.classList.add('hidden');
+            winModal.classList.add('hidden');
+            resetMarblePosition();
+            activateSensorControls();
+        }
+        
+        function winGame() {
+            gameActive = false;
+            controls = {x: 0, z: 0};
+            winModal.classList.remove('hidden');
+        }
+
+        function resetGame(reason) {
+            gameActive = false;
+            controls = {x: 0, z: 0};
+            startModal.querySelector('p').textContent = reason || "Guide the marble to the green goal pad. Use your device's tilt controls or the arrow keys on your keyboard. Be careful not to fall off the edge!";
+            startModal.classList.remove('hidden');
+        }
+        
+        function resetMarblePosition() {
+            marbleBody.position.set(0, 5, 12);
+            marbleBody.velocity.set(0, 0, 0);
+            marbleBody.angularVelocity.set(0, 0, 0);
+        }
+
+        // --- ANIMATION LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (gameActive) {
+                world.step(1 / 60);
+
+                // Apply forces from controls
+                const force = new CANNON.Vec3(controls.x, 0, controls.z);
+                marbleBody.applyForce(force, marbleBody.position);
+
+                // Check for falling off
+                if (marbleBody.position.y < -5) {
+                    resetGame('You fell off the edge!');
+                }
+            }
+
+            // Update visuals from physics
+            marble.position.copy(marbleBody.position);
+            marble.quaternion.copy(marbleBody.quaternion);
+
+            renderer.render(scene, camera);
+        }
+
+        // --- EVENT LISTENERS ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        startButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            startGame();
+        });
+
+        playAgainButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            resetGame();
+            startGame();
+        });
+
+        init();
+        animate();
+
+    </script>
+</body>
+</html>
