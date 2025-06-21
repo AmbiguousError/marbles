@@ -241,10 +241,13 @@
                         break;
                     case 'ramp':
                         const rampAngle = Math.PI / 16;
-                        pieceRotation.x = -rampAngle;
-                        const rampOffset = new THREE.Vector3(0, pieceSize.depth * Math.sin(rampAngle) / 2, 0);
+                        pieceRotation.x = -rampAngle; // A negative rotation around X makes the piece slope downwards.
+                        const yChange = pieceSize.depth * Math.sin(rampAngle);
+                        // The ramp's center needs to be shifted down by half its vertical drop.
+                        const rampOffset = new THREE.Vector3(0, -yChange / 2, 0);
                         addLevelPiece(nextPos.clone().add(rampOffset), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
-                        nextPos.y += pieceSize.depth * Math.sin(rampAngle);
+                        // The next piece's Y position is now lower.
+                        nextPos.y -= yChange;
                         break;
                     case 'turnLeft':
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
@@ -294,20 +297,19 @@
 
             const pieceQuaternion = new THREE.Quaternion().setFromEuler(pieceRotation);
             
-            // This determines which side is "outer" relative to the piece's local X-axis.
-            const sideSign = turnDirection === 'left' ? -1 : 1;
+            const sideSign = turnDirection === 'left' ? 1 : -1;
 
-            // Wall 1: The side wall on the outer edge of the turn.
+            // Wall 1: The wall opposite the entrance.
+            const backWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
+            const backWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
+            const backWallWorldPos = centerPos.clone().add(backWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(backWallWorldPos, pieceRotation, backWallSize);
+
+            // Wall 2: The side wall on the outer edge of the turn.
             const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, platformWidth);
             const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, 0);
             const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
             addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
-            
-            // Wall 2: The "front" wall, opposite the turn's exit.
-            const frontWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
-            const frontWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
-            const frontWallWorldPos = centerPos.clone().add(frontWallLocalPos.clone().applyQuaternion(pieceQuaternion));
-            addGuardRail(frontWallWorldPos, pieceRotation, frontWallSize);
         }
 
         function addLevelPiece(pos, rot, size, hasSideWalls = false) {
