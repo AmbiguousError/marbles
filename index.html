@@ -85,6 +85,26 @@
             font-size: 1.2rem;
             font-weight: bold;
         }
+        #orientation-dial {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #dial-pointer {
+            width: 10px;
+            height: 10px;
+            background-color: #4ade80;
+            border-radius: 50%;
+            transition: transform 0.1s linear;
+        }
     </style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -104,6 +124,7 @@
             <p>Excellent control! Prepare for the next challenge.</p>
             <button id="next-level-button">Next Level</button>
         </div>
+        <div id="orientation-dial" class="hidden"><div id="dial-pointer"></div></div>
     </div>
     <canvas id="game-canvas"></canvas>
 
@@ -135,46 +156,34 @@
         const startButton = document.getElementById('start-button');
         const nextLevelButton = document.getElementById('next-level-button');
         const sensorError = document.getElementById('sensor-error');
+        const orientationDial = document.getElementById('orientation-dial');
+        const dialPointer = document.getElementById('dial-pointer');
         const groundMaterial = new CANNON.Material('ground');
         const marbleMaterial = new CANNON.Material('marble');
 
         // --- INITIALIZE THE GAME ---
         function init() {
-            // Scene
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x1a1a1a);
-
-            // Camera
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 20, 20);
             camera.lookAt(0, 0, 0);
-
-            // Renderer
             renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('game-canvas'), antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-            // Lights
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
             directionalLight.position.set(15, 25, 10);
             directionalLight.castShadow = true;
-            // Reduced shadow map size for better mobile performance
             directionalLight.shadow.mapSize.width = 2048;
             directionalLight.shadow.mapSize.height = 2048;
             scene.add(directionalLight);
-            
-            // Physics World
             world = new CANNON.World({ gravity: new CANNON.Vec3(0, -30, 0) });
-            const contactMaterial = new CANNON.ContactMaterial(groundMaterial, marbleMaterial, {
-                friction: 0.2,
-                restitution: 0.5,
-            });
+            const contactMaterial = new CANNON.ContactMaterial(groundMaterial, marbleMaterial, { friction: 0.2, restitution: 0.5 });
             world.addContactMaterial(contactMaterial);
-
             createMarble(marbleMaterial);
             setupControls();
         }
@@ -194,54 +203,47 @@
 
         function generateAndBuildLevel() {
             clearLevel();
-            
             const pieceSize = { width: 4, height: 0.5, depth: 4 };
             let currentPos = new THREE.Vector3(0, 0, 0);
-            let currentDir = new THREE.Vector3(0, 0, -1); // Start moving away from camera
-
-            const pathLength = 8 + currentLevel * 3;
+            let currentDir = new THREE.Vector3(0, 0, -1);
+            const pathLength = 8 + currentLevel * 2;
             let lastTurn = 0;
 
-            // Create starting platform
             addLevelPiece(currentPos, new THREE.Euler(0,0,0), new THREE.Vector3(5, pieceSize.height, 5));
             startPosition.copy(currentPos).y = 2;
 
             for (let i = 0; i < pathLength; i++) {
                 const pieceTypeRoll = Math.random();
                 let pieceType = 'straight';
-
-                // Encourage turns but not too often
-                if (pieceTypeRoll > 0.7 && i > lastTurn + 1) {
+                if (pieceTypeRoll > 0.65 && i > lastTurn + 1) {
                     pieceType = Math.random() > 0.5 ? 'turnLeft' : 'turnRight';
                     lastTurn = i;
-                } else if (pieceTypeRoll > 0.6 && currentLevel > 1) { // Introduce ramps after level 1
+                } else if (pieceTypeRoll > 0.5 && currentLevel > 1) {
                     pieceType = 'ramp';
                 }
 
                 const nextPos = currentPos.clone().add(currentDir.clone().multiplyScalar(pieceSize.depth));
                 let nextDir = currentDir.clone();
-                let rotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
+                let pieceRotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
                 
                 switch(pieceType) {
                     case 'straight':
-                        addLevelPiece(nextPos, rotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
                         break;
                     case 'ramp':
-                        const rampAngle = Math.PI / 12; // 15 degrees
-                        rotation.x = -rampAngle;
+                        const rampAngle = Math.PI / 16; // Shallower ramp
+                        pieceRotation.x = -rampAngle;
                         const rampOffset = new THREE.Vector3(0, pieceSize.depth * Math.sin(rampAngle) / 2, 0);
-                        addLevelPiece(nextPos.clone().add(rampOffset), rotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
+                        addLevelPiece(nextPos.clone().add(rampOffset), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
                         nextPos.y += pieceSize.depth * Math.sin(rampAngle);
                         break;
                     case 'turnLeft':
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), false, 'left');
                         nextDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
-                        rotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
-                        addLevelPiece(nextPos, rotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
                         break;
                     case 'turnRight':
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), false, 'right');
                         nextDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
-                        rotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
-                        addLevelPiece(nextPos, rotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
                         break;
                 }
                 currentPos = nextPos;
@@ -251,7 +253,35 @@
             createHoles(currentLevel);
         }
 
-        function addLevelPiece(pos, rot, size) {
+        function addWall(pos, rot, side) {
+            const wallSize = { x: 0.2, y: 1, z: 4};
+            const wallPos = pos.clone();
+            const wallRot = new THREE.Quaternion().setFromEuler(rot);
+            const sideVector = new THREE.Vector3(side === 'right' ? 1 : -1, 0, 0);
+            sideVector.applyQuaternion(wallRot);
+            wallPos.add(sideVector.multiplyScalar(2)); // 2 is half the platform width
+
+            const wallMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(wallSize.x, wallSize.y, wallSize.z),
+                new THREE.MeshStandardMaterial({color: 0x6b7280})
+            );
+            wallMesh.position.copy(wallPos);
+            wallMesh.quaternion.copy(wallRot);
+            wallMesh.castShadow = true;
+            scene.add(wallMesh);
+
+            const wallBody = new CANNON.Body({
+                mass: 0,
+                shape: new CANNON.Box(new CANNON.Vec3(wallSize.x/2, wallSize.y/2, wallSize.z/2)),
+                material: groundMaterial
+            });
+            wallBody.position.copy(wallMesh.position);
+            wallBody.quaternion.copy(wallMesh.quaternion);
+            world.addBody(wallBody);
+            levelPieces.push({mesh: wallMesh, body: wallBody});
+        }
+        
+        function addLevelPiece(pos, rot, size, hasSideWalls = false, turnDirection = null) {
              const mesh = new THREE.Mesh(
                 new THREE.BoxGeometry(size.x, size.y, size.z),
                 new THREE.MeshStandardMaterial({ color: 0x4b5563 })
@@ -260,7 +290,6 @@
             mesh.quaternion.setFromEuler(rot);
             mesh.receiveShadow = true;
             scene.add(mesh);
-
             const body = new CANNON.Body({
                 mass: 0,
                 shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)),
@@ -269,53 +298,39 @@
             body.position.copy(mesh.position);
             body.quaternion.copy(mesh.quaternion);
             world.addBody(body);
-            
             levelPieces.push({ mesh, body });
+
+            if(hasSideWalls) {
+                addWall(pos, rot, 'left');
+                addWall(pos, rot, 'right');
+            }
+            if(turnDirection) {
+                // Add wall on the outside of the turn
+                addWall(pos, rot, turnDirection === 'left' ? 'right' : 'left');
+            }
         }
         
         function createHoles(level) {
             const numHoles = Math.floor(level / 2);
             for(let i = 0; i < numHoles; i++) {
-                // Pick a random piece to place a hole on (but not the first few)
                 const pieceIndex = 3 + Math.floor(Math.random() * (levelPieces.length - 4));
-                if (levelPieces[pieceIndex]) {
+                if (levelPieces[pieceIndex] && !levelPieces[pieceIndex].isHole) {
                     const piece = levelPieces[pieceIndex];
                     const pos = piece.body.position;
-                    
-                    const holeBody = new CANNON.Body({
-                        mass: 0,
-                        shape: new CANNON.Cylinder(0.8, 0.8, 0.2, 16),
-                        position: new CANNON.Vec3(pos.x, pos.y + 0.1, pos.z),
-                        isTrigger: true
-                    });
+                    const holeBody = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(0.8, 0.8, 0.2, 16), position: new CANNON.Vec3(pos.x, pos.y + 0.1, pos.z), isTrigger: true });
                     world.addBody(holeBody);
-                    
-                    const holeMesh = new THREE.Mesh(
-                        new THREE.CylinderGeometry(0.8, 0.8, 0.2, 16),
-                        new THREE.MeshBasicMaterial({ color: 0x000000 })
-                    );
+                    const holeMesh = new THREE.Mesh( new THREE.CylinderGeometry(0.8, 0.8, 0.2, 16), new THREE.MeshBasicMaterial({ color: 0x000000 }) );
                     holeMesh.position.copy(holeBody.position);
                     scene.add(holeMesh);
-
-                    // Add to level pieces for cleanup
                     levelPieces.push({ mesh: holeMesh, body: holeBody, isHole: true });
                 }
             }
         }
 
         function createGoal(position) {
-            goalBody = new CANNON.Body({
-                mass: 0,
-                shape: new CANNON.Cylinder(1.5, 1.5, 0.2, 16),
-                position: position,
-                isTrigger: true
-            });
+            goalBody = new CANNON.Body({ mass: 0, shape: new CANNON.Cylinder(1.5, 1.5, 0.2, 16), position: position, isTrigger: true });
             world.addBody(goalBody);
-
-            goal = new THREE.Mesh(
-                new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16),
-                new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x34d399 })
-            );
+            goal = new THREE.Mesh( new THREE.CylinderGeometry(1.5, 1.5, 0.2, 16), new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x34d399 }) );
             goal.position.copy(goalBody.position);
             goal.receiveShadow = true;
             scene.add(goal);
@@ -324,22 +339,13 @@
         function createMarble(material) {
             marbleBody = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(0.5), material: material });
             world.addBody(marbleBody);
-            
             marbleBody.addEventListener('collide', (e) => {
-                if (e.body === goalBody) {
-                    winGame();
-                }
+                if (e.body === goalBody) winGame();
                 levelPieces.forEach(piece => {
-                    if (piece.isHole && e.body === piece.body) {
-                        loseGame('You fell into a hole!');
-                    }
+                    if (piece.isHole && e.body === piece.body) loseGame('You fell into a hole!');
                 });
             });
-
-            marble = new THREE.Mesh(
-                new THREE.SphereGeometry(0.5, 32, 32),
-                new THREE.MeshStandardMaterial({ color: 0xfca5a5, metalness: 0.3, roughness: 0.4 })
-            );
+            marble = new THREE.Mesh( new THREE.SphereGeometry(0.5, 32, 32), new THREE.MeshStandardMaterial({ color: 0xfca5a5, metalness: 0.3, roughness: 0.4 }) );
             marble.castShadow = true;
             scene.add(marble);
         }
@@ -369,75 +375,74 @@
 
             let sensorStarted = false;
 
-            // --- iOS 13+ permission request ---
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
                     const permissionState = await DeviceMotionEvent.requestPermission();
                     if (permissionState !== 'granted') {
                         sensorError.textContent = "Permission for sensor access was denied. Using keyboard.";
                         sensorError.classList.remove('hidden');
-                        return; // Exit if permission is not granted
+                        return;
                     }
                 } catch (error) {
-                    // This error is intentionally not logged to the console
                     sensorError.textContent = "Could not get sensor permission. Using keyboard.";
                     sensorError.classList.remove('hidden');
                     return;
                 }
             }
 
-            // --- Attempt 1: Modern Generic Sensor API (Accelerometer) ---
             try {
                 if ('Accelerometer' in window) {
                     const accelerometer = new Accelerometer({ frequency: 60 });
-                    accelerometer.addEventListener('error', event => {
-                        // This is for runtime errors, not construction errors.
-                        if (event.error.name === 'NotAllowedError') {
-                           // This is handled by the main try-catch logic, so we can ignore it here.
-                        } else {
-                           console.error("Accelerometer runtime error:", event.error.name, event.error.message);
-                        }
-                    });
                     accelerometer.addEventListener('reading', () => {
                         if (!gameActive || accelerometer.x === null) return;
                         sensorStarted = true;
-                        const sensitivity = 45;
-                        controls.x = accelerometer.y * sensitivity;
-                        controls.z = -accelerometer.x * sensitivity;
+                        const sensitivity = 30; // Reduced sensitivity
+                        const deadZone = 0.5; // Ignore small tilts
+                        
+                        let tiltX = accelerometer.y;
+                        let tiltY = -accelerometer.x;
+
+                        controls.x = Math.abs(tiltX) > deadZone ? tiltX * sensitivity : 0;
+                        controls.z = Math.abs(tiltY) > deadZone ? tiltY * sensitivity : 0;
+                        
+                        dialPointer.style.transform = `translate(${tiltX * 4}px, ${tiltY * 4}px)`;
                     });
                     accelerometer.start();
-                    sensorStarted = true; // Assume it started if no immediate error
+                    sensorStarted = true;
                 }
             } catch (error) {
-                // This will catch construction errors, like the Permissions Policy error.
-                // We will intentionally NOT log this error to the console, because it's an
-                // expected failure in some iframe environments. We will just proceed to the fallback.
-                sensorStarted = false; // Explicitly mark as failed
+                sensorStarted = false;
             }
 
-            // --- Attempt 2: Legacy DeviceMotionEvent API (Fallback) ---
             if (!sensorStarted && 'DeviceMotionEvent' in window) {
                 const handleMotion = (event) => {
                     if (event.accelerationIncludingGravity.x !== null) {
                         sensorStarted = true;
-                        // The values from this event are different, so sensitivity needs adjustment
-                        const sensitivity = 4.5; 
-                        controls.x = event.accelerationIncludingGravity.y * sensitivity;
-                        controls.z = -event.accelerationIncludingGravity.x * sensitivity;
+                        const sensitivity = 3; // Reduced sensitivity for legacy API
+                        const deadZone = 0.5;
+                        
+                        let tiltX = event.accelerationIncludingGravity.y;
+                        let tiltY = -event.accelerationIncludingGravity.x;
+
+                        controls.x = Math.abs(tiltX) > deadZone ? tiltX * sensitivity : 0;
+                        controls.z = Math.abs(tiltY) > deadZone ? tiltY * sensitivity : 0;
+                        
+                        dialPointer.style.transform = `translate(${tiltX * 4}px, ${tiltY * 4}px)`;
                     }
                 };
                 window.addEventListener('devicemotion', handleMotion);
             }
 
-            // --- Final check and user feedback ---
             setTimeout(() => {
                 if (!sensorStarted) {
                     sensorError.textContent = "Could not activate motion sensors. Using keyboard.";
                     sensorError.classList.remove('hidden');
+                    orientationDial.classList.add('hidden');
                 } else {
-                    sensorError.classList.add('hidden'); // Hide any previous error messages if successful
+                    sensorError.classList.add('hidden');
+                    orientationDial.classList.remove('hidden');
                 }
-            }, 500); // Wait half a second to see if any sensor events fire
+            }, 500);
         }
 
         // --- GAME LOGIC ---
@@ -446,7 +451,6 @@
             winModal.classList.add('hidden');
             hud.classList.remove('hidden');
             levelDisplay.textContent = currentLevel;
-            
             generateAndBuildLevel();
             resetMarblePosition();
             activateSensorControls();
@@ -456,6 +460,7 @@
             gameActive = false;
             controls = {x: 0, z: 0};
             winModal.classList.remove('hidden');
+            orientationDial.classList.add('hidden');
         }
 
         function loseGame(reason) {
@@ -465,6 +470,7 @@
             startModal.querySelector('p').textContent = reason || "Try again!";
             startModal.querySelector('button').textContent = "Retry Level";
             startModal.classList.remove('hidden');
+            orientationDial.classList.add('hidden');
         }
         
         function resetMarblePosition() {
@@ -485,15 +491,11 @@
                     loseGame('You fell off the edge!');
                 }
             }
-
             marble.position.copy(marbleBody.position);
             marble.quaternion.copy(marbleBody.quaternion);
-
-            // Camera follows marble
             const cameraOffset = new THREE.Vector3(0, 10, 12);
             camera.position.lerp(marble.position.clone().add(cameraOffset), 0.05);
             camera.lookAt(marble.position);
-
             renderer.render(scene, camera);
         }
 
@@ -503,13 +505,11 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
-
         startButton.addEventListener('click', (e) => {
             e.stopPropagation();
             startModal.classList.add('hidden');
             runLevel();
         });
-        
         nextLevelButton.addEventListener('click', (e) => {
              e.stopPropagation();
              currentLevel++;
