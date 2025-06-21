@@ -176,11 +176,22 @@
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
             scene.add(ambientLight);
             const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-            directionalLight.position.set(15, 25, 10);
+            directionalLight.position.set(25, 50, 25);
             directionalLight.castShadow = true;
+            
+            // --- Shadow Camera Fix ---
+            directionalLight.shadow.camera.left = -60;
+            directionalLight.shadow.camera.right = 60;
+            directionalLight.shadow.camera.top = 60;
+            directionalLight.shadow.camera.bottom = -60;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 120;
+            directionalLight.shadow.bias = -0.0001;
+            
             directionalLight.shadow.mapSize.width = 2048;
             directionalLight.shadow.mapSize.height = 2048;
             scene.add(directionalLight);
+
             world = new CANNON.World({ gravity: new CANNON.Vec3(0, -30, 0) });
             const contactMaterial = new CANNON.ContactMaterial(groundMaterial, marbleMaterial, { friction: 0.2, restitution: 0.5 });
             world.addContactMaterial(contactMaterial);
@@ -223,7 +234,6 @@
                 }
 
                 const nextPos = currentPos.clone().add(currentDir.clone().multiplyScalar(pieceSize.depth));
-                let nextDir = currentDir.clone();
                 let pieceRotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
                 
                 switch(pieceType) {
@@ -231,83 +241,79 @@
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
                         break;
                     case 'ramp':
-                        const rampAngle = Math.PI / 16; // Shallower ramp
+                        const rampAngle = Math.PI / 16;
                         pieceRotation.x = -rampAngle;
                         const rampOffset = new THREE.Vector3(0, pieceSize.depth * Math.sin(rampAngle) / 2, 0);
                         addLevelPiece(nextPos.clone().add(rampOffset), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
                         nextPos.y += pieceSize.depth * Math.sin(rampAngle);
                         break;
                     case 'turnLeft':
-                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), false, 'left');
-                        nextDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
+                        addCornerWall(nextPos, pieceRotation, 'left');
+                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
                         break;
                     case 'turnRight':
-                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), false, 'right');
-                        nextDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
+                        addCornerWall(nextPos, pieceRotation, 'right');
+                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
                         break;
                 }
                 currentPos = nextPos;
-                currentDir = nextDir;
             }
             createGoal(currentPos.clone().add(new THREE.Vector3(0,0.2,0)));
             createHoles(currentLevel);
         }
-
-        function addWall(pos, rot, side) {
-            const wallSize = { x: 0.2, y: 1, z: 4};
-            const wallPos = pos.clone();
-            const wallRot = new THREE.Quaternion().setFromEuler(rot);
-            const sideVector = new THREE.Vector3(side === 'right' ? 1 : -1, 0, 0);
-            sideVector.applyQuaternion(wallRot);
-            wallPos.add(sideVector.multiplyScalar(2)); // 2 is half the platform width
-
-            const wallMesh = new THREE.Mesh(
-                new THREE.BoxGeometry(wallSize.x, wallSize.y, wallSize.z),
-                new THREE.MeshStandardMaterial({color: 0x6b7280})
-            );
-            wallMesh.position.copy(wallPos);
-            wallMesh.quaternion.copy(wallRot);
+        
+        function addGuardRail(pos, rot, size) {
+            const wallMesh = new THREE.Mesh( new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({color: 0x6b7280}) );
+            wallMesh.position.copy(pos);
+            wallMesh.quaternion.setFromEuler(rot);
             wallMesh.castShadow = true;
             scene.add(wallMesh);
-
-            const wallBody = new CANNON.Body({
-                mass: 0,
-                shape: new CANNON.Box(new CANNON.Vec3(wallSize.x/2, wallSize.y/2, wallSize.z/2)),
-                material: groundMaterial
-            });
+            const wallBody = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)), material: groundMaterial });
             wallBody.position.copy(wallMesh.position);
             wallBody.quaternion.copy(wallMesh.quaternion);
             world.addBody(wallBody);
             levelPieces.push({mesh: wallMesh, body: wallBody});
         }
+
+        function addSideWalls(pos, rot) {
+            const pieceQuaternion = new THREE.Quaternion().setFromEuler(rot);
+            const wallSize = new THREE.Vector3(0.2, 1, 4);
+            [-1, 1].forEach(sideSign => {
+                const sideVector = new THREE.Vector3(sideSign * 2, 0.25, 0);
+                sideVector.applyQuaternion(pieceQuaternion);
+                addGuardRail(pos.clone().add(sideVector), rot, wallSize);
+            });
+        }
         
-        function addLevelPiece(pos, rot, size, hasSideWalls = false, turnDirection = null) {
-             const mesh = new THREE.Mesh(
-                new THREE.BoxGeometry(size.x, size.y, size.z),
-                new THREE.MeshStandardMaterial({ color: 0x4b5563 })
-            );
+        function addCornerWall(pos, rot, turnDirection) {
+            const platformWidth = 4;
+            const wallLength = platformWidth + 0.2;
+            const wallThickness = 0.2;
+            const wallHeight = 1;
+            const wallSize = new THREE.Vector3(wallLength, wallHeight, wallThickness);
+            const pieceQuaternion = new THREE.Quaternion().setFromEuler(rot);
+            const sideSign = turnDirection === 'left' ? 1 : -1;
+            const offset = new THREE.Vector3(sideSign * platformWidth / 2, wallHeight / 2 - 0.25, platformWidth / 2);
+            offset.applyQuaternion(pieceQuaternion);
+            const wallPos = pos.clone().add(offset);
+            const wallRot = new THREE.Euler(rot.x, rot.y + (sideSign * Math.PI / 2), rot.z);
+            addGuardRail(wallPos, wallRot, wallSize);
+        }
+
+        function addLevelPiece(pos, rot, size, hasSideWalls = false) {
+             const mesh = new THREE.Mesh( new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color: 0x4b5563 }) );
             mesh.position.copy(pos);
             mesh.quaternion.setFromEuler(rot);
             mesh.receiveShadow = true;
             scene.add(mesh);
-            const body = new CANNON.Body({
-                mass: 0,
-                shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)),
-                material: groundMaterial
-            });
+            const body = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)), material: groundMaterial });
             body.position.copy(mesh.position);
             body.quaternion.copy(mesh.quaternion);
             world.addBody(body);
             levelPieces.push({ mesh, body });
-
-            if(hasSideWalls) {
-                addWall(pos, rot, 'left');
-                addWall(pos, rot, 'right');
-            }
-            if(turnDirection) {
-                // Add wall on the outside of the turn
-                addWall(pos, rot, turnDirection === 'left' ? 'right' : 'left');
-            }
+            if(hasSideWalls) addSideWalls(pos, rot);
         }
         
         function createHoles(level) {
@@ -372,9 +378,7 @@
                 sensorError.classList.remove('hidden');
                 return;
             }
-
             let sensorStarted = false;
-
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
                     const permissionState = await DeviceMotionEvent.requestPermission();
@@ -389,50 +393,40 @@
                     return;
                 }
             }
-
             try {
                 if ('Accelerometer' in window) {
                     const accelerometer = new Accelerometer({ frequency: 60 });
                     accelerometer.addEventListener('reading', () => {
                         if (!gameActive || accelerometer.x === null) return;
                         sensorStarted = true;
-                        const sensitivity = 30; // Reduced sensitivity
-                        const deadZone = 0.5; // Ignore small tilts
-                        
+                        const sensitivity = 20; // Significantly reduced sensitivity
+                        const deadZone = 1.0; // Increased deadzone
                         let tiltX = accelerometer.y;
                         let tiltY = -accelerometer.x;
-
-                        controls.x = Math.abs(tiltX) > deadZone ? tiltX * sensitivity : 0;
-                        controls.z = Math.abs(tiltY) > deadZone ? tiltY * sensitivity : 0;
-                        
-                        dialPointer.style.transform = `translate(${tiltX * 4}px, ${tiltY * 4}px)`;
+                        controls.x = Math.abs(tiltX) > deadZone ? (tiltX - Math.sign(tiltX) * deadZone) * sensitivity : 0;
+                        controls.z = Math.abs(tiltY) > deadZone ? (tiltY - Math.sign(tiltY) * deadZone) * sensitivity : 0;
+                        dialPointer.style.transform = `translate(${accelerometer.y * 4}px, ${-accelerometer.x * 4}px)`;
                     });
                     accelerometer.start();
                     sensorStarted = true;
                 }
-            } catch (error) {
-                sensorStarted = false;
-            }
+            } catch (error) { sensorStarted = false; }
 
             if (!sensorStarted && 'DeviceMotionEvent' in window) {
                 const handleMotion = (event) => {
                     if (event.accelerationIncludingGravity.x !== null) {
                         sensorStarted = true;
-                        const sensitivity = 3; // Reduced sensitivity for legacy API
-                        const deadZone = 0.5;
-                        
+                        const sensitivity = 2; // Significantly reduced sensitivity for legacy API
+                        const deadZone = 1.0; 
                         let tiltX = event.accelerationIncludingGravity.y;
                         let tiltY = -event.accelerationIncludingGravity.x;
-
-                        controls.x = Math.abs(tiltX) > deadZone ? tiltX * sensitivity : 0;
-                        controls.z = Math.abs(tiltY) > deadZone ? tiltY * sensitivity : 0;
-                        
+                        controls.x = Math.abs(tiltX) > deadZone ? (tiltX - Math.sign(tiltX) * deadZone) * sensitivity : 0;
+                        controls.z = Math.abs(tiltY) > deadZone ? (tiltY - Math.sign(tiltY) * deadZone) * sensitivity : 0;
                         dialPointer.style.transform = `translate(${tiltX * 4}px, ${tiltY * 4}px)`;
                     }
                 };
                 window.addEventListener('devicemotion', handleMotion);
             }
-
             setTimeout(() => {
                 if (!sensorStarted) {
                     sensorError.textContent = "Could not activate motion sensors. Using keyboard.";
