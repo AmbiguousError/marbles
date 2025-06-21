@@ -291,26 +291,25 @@
             const wallHeight = 1;
             const wallThickness = 0.2;
             const halfWidth = platformWidth / 2;
-            const wallLength = halfWidth;
 
             const pieceQuaternion = new THREE.Quaternion().setFromEuler(pieceRotation);
             
-            // This determines which side is "outer". Left turn -> right wall. Right turn -> left wall.
+            // This determines which side is "outer" relative to the piece's local X-axis, based on the turn.
+            // A left turn (-X exit) has its outer wall on the +X side.
+            // A right turn (+X exit) has its outer wall on the -X side.
             const sideSign = turnDirection === 'left' ? 1 : -1;
 
-            // Wall 1: The side wall, parallel to the direction of entry.
-            const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, wallLength);
-            // Position it on the outer side, covering the first half of the corner piece's edge.
-            const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, -wallLength / 2);
-            const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
-            addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
-            
-            // Wall 2: The "end" wall, perpendicular to the direction of entry.
-            const endWallSize = new THREE.Vector3(wallLength, wallHeight, wallThickness);
-            // Position it on the outer side, at the "end" of the corner piece.
-            const endWallLocalPos = new THREE.Vector3(sideSign * wallLength / 2, wallHeight / 2 - 0.25, -halfWidth);
+            // Wall 1: The wall opposite the entrance. The entrance is always from local +Z. So the wall is at -Z.
+            const endWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
+            const endWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, -halfWidth);
             const endWallWorldPos = centerPos.clone().add(endWallLocalPos.clone().applyQuaternion(pieceQuaternion));
             addGuardRail(endWallWorldPos, pieceRotation, endWallSize);
+            
+            // Wall 2: The "side" wall on the outer edge of the turn.
+            const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, platformWidth);
+            const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, 0);
+            const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
         }
 
         function addLevelPiece(pos, rot, size, hasSideWalls = false) {
