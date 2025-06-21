@@ -248,12 +248,12 @@
                         break;
                     case 'turnLeft':
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
-                        addOuterCornerWalls(nextPos, currentDir, 'left');
+                        addOuterCornerWalls(nextPos, pieceRotation, 'left');
                         currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
                         break;
                     case 'turnRight':
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
-                        addOuterCornerWalls(nextPos, currentDir, 'right');
+                        addOuterCornerWalls(nextPos, pieceRotation, 'right');
                         currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
                         break;
                 }
@@ -286,34 +286,28 @@
             });
         }
         
-        function addOuterCornerWalls(centerPos, incomingDir, turnDirection) {
+        function addOuterCornerWalls(centerPos, pieceRotation, turnDirection) {
             const platformWidth = 4;
             const wallHeight = 1;
             const wallThickness = 0.2;
             const halfWidth = platformWidth / 2;
-            const wallLength = platformWidth;
-        
-            // Determine the "right" vector relative to the incoming direction
-            const rightVec = new THREE.Vector3(incomingDir.z, 0, -incomingDir.x);
-        
-            // Determine the outer side vector based on the turn direction
-            const outerSideVec = rightVec.clone().multiplyScalar(turnDirection === 'left' ? 1 : -1);
-        
-            // Wall 1: The side wall on the outer edge of the turn
-            const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, wallLength);
-            const sideWallPos = centerPos.clone()
-                .add(outerSideVec.clone().multiplyScalar(halfWidth));
-            sideWallPos.y += wallHeight / 2 - 0.25;
-            const sideWallRot = new THREE.Euler(0, Math.atan2(incomingDir.x, incomingDir.z), 0);
-            addGuardRail(sideWallPos, sideWallRot, sideWallSize);
-        
-            // Wall 2: The back wall opposite the entrance of the turn piece
-            const backWallSize = new THREE.Vector3(wallLength, wallHeight, wallThickness);
-            const backWallPos = centerPos.clone()
-                .add(incomingDir.clone().multiplyScalar(-halfWidth)); // Positioned at the "back"
-            backWallPos.y += wallHeight / 2 - 0.25;
-            const backWallRot = new THREE.Euler(0, Math.atan2(rightVec.x, rightVec.z), 0); // Rotated to be perpendicular
-            addGuardRail(backWallPos, backWallRot, backWallSize);
+
+            const pieceQuaternion = new THREE.Quaternion().setFromEuler(pieceRotation);
+            
+            // This determines which side is "outer" relative to the piece's local X-axis.
+            const sideSign = turnDirection === 'left' ? -1 : 1;
+
+            // Wall 1: The side wall on the outer edge of the turn.
+            const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, platformWidth);
+            const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, 0);
+            const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
+            
+            // Wall 2: The "front" wall, opposite the turn's exit.
+            const frontWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
+            const frontWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
+            const frontWallWorldPos = centerPos.clone().add(frontWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(frontWallWorldPos, pieceRotation, frontWallSize);
         }
 
         function addLevelPiece(pos, rot, size, hasSideWalls = false) {
