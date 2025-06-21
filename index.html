@@ -231,8 +231,7 @@
                 } else if (pieceTypeRoll > 0.5 && currentLevel > 1) {
                     pieceType = 'ramp';
                 }
-
-                const prevDir = currentDir.clone();
+                
                 const nextPos = currentPos.clone().add(currentDir.clone().multiplyScalar(pieceSize.depth));
                 let pieceRotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
                 
@@ -248,14 +247,14 @@
                         nextPos.y += pieceSize.depth * Math.sin(rampAngle);
                         break;
                     case 'turnLeft':
-                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
-                        addOuterCornerWalls(nextPos, prevDir, currentDir);
+                        addOuterCornerWalls(nextPos, pieceRotation, 'left');
+                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
                         break;
                     case 'turnRight':
-                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
-                        addOuterCornerWalls(nextPos, prevDir, currentDir);
+                        addOuterCornerWalls(nextPos, pieceRotation, 'right');
+                        currentDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
                         break;
                 }
                 currentPos = nextPos;
@@ -287,32 +286,32 @@
             });
         }
         
-        function addOuterCornerWalls(centerPos, dirIn, dirOut) {
+        function addOuterCornerWalls(centerPos, pieceRotation, turnDirection) {
             const platformWidth = 4;
             const wallHeight = 1;
             const wallThickness = 0.2;
             const halfWidth = platformWidth / 2;
+            const wallLength = halfWidth;
 
-            // Determine the outer corner vector by adding the normalized direction vectors
-            const outerCornerVector = dirIn.clone().add(dirOut).normalize().multiplyScalar(-1);
+            const pieceQuaternion = new THREE.Quaternion().setFromEuler(pieceRotation);
             
-            // Wall 1: Aligned with the incoming path
-            const wall1Pos = centerPos.clone()
-                .add(outerCornerVector.clone().multiplyScalar(halfWidth))
-                .add(dirIn.clone().multiplyScalar(-halfWidth / 2));
-            wall1Pos.y += wallHeight / 2 - 0.25;
-            const wall1Rot = new THREE.Euler(0, Math.atan2(dirIn.x, dirIn.z), 0);
-            addGuardRail(wall1Pos, wall1Rot, new THREE.Vector3(wallThickness, wallHeight, halfWidth));
+            // This determines which side is "outer". Left turn -> right wall. Right turn -> left wall.
+            const sideSign = turnDirection === 'left' ? 1 : -1;
 
-            // Wall 2: Aligned with the outgoing path
-            const wall2Pos = centerPos.clone()
-                .add(outerCornerVector.clone().multiplyScalar(halfWidth))
-                .add(dirOut.clone().multiplyScalar(halfWidth / 2));
-            wall2Pos.y += wallHeight / 2 - 0.25;
-            const wall2Rot = new THREE.Euler(0, Math.atan2(dirOut.x, dirOut.z), 0);
-            addGuardRail(wall2Pos, wall2Rot, new THREE.Vector3(wallThickness, wallHeight, halfWidth));
+            // Wall 1: The side wall, parallel to the direction of entry.
+            const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, wallLength);
+            // Position it on the outer side, covering the first half of the corner piece's edge.
+            const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, -wallLength / 2);
+            const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
+            
+            // Wall 2: The "end" wall, perpendicular to the direction of entry.
+            const endWallSize = new THREE.Vector3(wallLength, wallHeight, wallThickness);
+            // Position it on the outer side, at the "end" of the corner piece.
+            const endWallLocalPos = new THREE.Vector3(sideSign * wallLength / 2, wallHeight / 2 - 0.25, -halfWidth);
+            const endWallWorldPos = centerPos.clone().add(endWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(endWallWorldPos, pieceRotation, endWallSize);
         }
-
 
         function addLevelPiece(pos, rot, size, hasSideWalls = false) {
              const mesh = new THREE.Mesh( new THREE.BoxGeometry(size.x, size.y, size.z), new THREE.MeshStandardMaterial({ color: 0x4b5563 }) );
@@ -414,9 +413,7 @@
                         const sensitivity = 20; 
                         const deadZone = 1.0; 
 
-                        // Portrait mode mapping
-                        // tilt left/right (x-axis) -> game x-axis
-                        // tilt forward/back (y-axis) -> game z-axis
+                        // Portrait mode mapping: Tilt L/R (X) controls game X. Tilt F/B (Y) controls game Z.
                         let tiltX = accelerometer.x;
                         let tiltY = accelerometer.y;
                         
