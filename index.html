@@ -216,6 +216,7 @@
             const pieceSize = { width: 4, height: 0.5, depth: 4 };
             let currentPos = new THREE.Vector3(0, 0, 0);
             let currentDir = new THREE.Vector3(0, 0, -1);
+            let currentExitY = 0; // NEW: Track exit height explicitly
             const pathLength = 8 + currentLevel * 2;
             let lastTurn = 0;
 
@@ -233,6 +234,7 @@
                 }
                 
                 const nextPos = currentPos.clone().add(currentDir.clone().multiplyScalar(pieceSize.depth));
+                nextPos.y = currentExitY; // Start next piece at correct height
                 let pieceRotation = new THREE.Euler(0, Math.atan2(currentDir.x, currentDir.z), 0);
                 
                 switch(pieceType) {
@@ -243,9 +245,9 @@
                         const rampAngle = Math.PI / 16;
                         pieceRotation.x = -rampAngle; 
                         const yChange = pieceSize.depth * Math.sin(rampAngle);
-                        const rampCenterY = currentPos.y - yChange / 2;
-                        addLevelPiece(new THREE.Vector3(nextPos.x, rampCenterY, nextPos.z), pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
-                        nextPos.y -= yChange;
+                        nextPos.y -= yChange / 2; // Adjust piece center for rotation
+                        addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth), true);
+                        currentExitY -= yChange; // Update exit height for the *next* piece
                         break;
                     case 'turnLeft':
                         addLevelPiece(nextPos, pieceRotation, new THREE.Vector3(pieceSize.width, pieceSize.height, pieceSize.depth));
@@ -260,7 +262,7 @@
                 }
                 currentPos = nextPos;
             }
-            createGoal(currentPos.clone().add(new THREE.Vector3(0,0.2,0)));
+            createGoal(new THREE.Vector3(currentPos.x, currentExitY + 0.2, currentPos.z));
             createHoles(currentLevel);
         }
         
@@ -297,17 +299,17 @@
             
             const sideSign = turnDirection === 'left' ? 1 : -1;
 
-            // Wall 1: The back wall, opposite the entrance.
-            const backWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
-            const backWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
-            const backWallWorldPos = centerPos.clone().add(backWallLocalPos.clone().applyQuaternion(pieceQuaternion));
-            addGuardRail(backWallWorldPos, pieceRotation, backWallSize);
-            
-            // Wall 2: The side wall on the outer edge of the turn.
+            // Wall 1: The side wall on the outer edge of the turn.
             const sideWallSize = new THREE.Vector3(wallThickness, wallHeight, platformWidth);
             const sideWallLocalPos = new THREE.Vector3(sideSign * halfWidth, wallHeight / 2 - 0.25, 0);
             const sideWallWorldPos = centerPos.clone().add(sideWallLocalPos.clone().applyQuaternion(pieceQuaternion));
             addGuardRail(sideWallWorldPos, pieceRotation, sideWallSize);
+            
+            // Wall 2: The back wall, opposite the entrance.
+            const backWallSize = new THREE.Vector3(platformWidth, wallHeight, wallThickness);
+            const backWallLocalPos = new THREE.Vector3(0, wallHeight / 2 - 0.25, halfWidth);
+            const backWallWorldPos = centerPos.clone().add(backWallLocalPos.clone().applyQuaternion(pieceQuaternion));
+            addGuardRail(backWallWorldPos, pieceRotation, backWallSize);
         }
 
         function addLevelPiece(pos, rot, size, hasSideWalls = false) {
